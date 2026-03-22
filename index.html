@@ -349,14 +349,18 @@ textarea { resize: none; }
   <!-- 입력 -->
   <div id="page-input" class="page">
     <div class="sub-tabs">
-      <button class="sub-tab active" onclick="switchSub('매출',this)">💰 매출</button>
-      <button class="sub-tab" onclick="switchSub('매입',this)">📦 매입</button>
+      <button class="sub-tab active" onclick="switchSub('매입',this)">📦 매입</button>
+      <button class="sub-tab" onclick="switchSub('매출',this)">💰 매출</button>
       <button class="sub-tab" onclick="switchSub('AS',this)">🔧 AS</button>
       <button class="sub-tab" onclick="switchSub('현장',this)">🏗️ 현장</button>
     </div>
 
     <!-- 매출 -->
-    <div id="sub-매출">
+    <div id="sub-매출" style="display:none;">
+      <div class="card" style="background:rgba(62,207,142,0.06);border-color:rgba(62,207,142,0.25);margin-bottom:12px;padding:12px 16px;">
+        <div style="font-size:13px;font-weight:700;color:var(--green);margin-bottom:4px;">💰 매출이란?</div>
+        <div style="font-size:12px;color:var(--text2);line-height:1.6;">인테리어 업체에서 <strong style="color:var(--text)">우리(에디핏)가 받는 돈</strong>이에요.<br>계약금, 중도금, 잔금 등 고객사로부터 청구하는 금액입니다.</div>
+      </div>
       <div class="card">
         <div class="card-title">💰 매출 입력</div>
         <div class="fg"><label>현장 *</label><select id="o-site"></select></div>
@@ -372,7 +376,11 @@ textarea { resize: none; }
     </div>
 
     <!-- 매입 -->
-    <div id="sub-매입" style="display:none;">
+    <div id="sub-매입">
+      <div class="card" style="background:rgba(79,158,255,0.06);border-color:rgba(79,158,255,0.25);margin-bottom:12px;padding:12px 16px;">
+        <div style="font-size:13px;font-weight:700;color:var(--accent);margin-bottom:4px;">📦 매입이란?</div>
+        <div style="font-size:12px;color:var(--text2);line-height:1.6;">공장에서 가구를 만들기 위해 <strong style="color:var(--text)">우리(에디핏)가 쓰는 돈</strong>이에요.<br>자재비, 합판비, 시공비 등 외부 거래처에 지급하는 금액입니다.</div>
+      </div>
       <div class="card">
         <div class="card-title">📦 매입 입력</div>
         <div class="fg"><label>현장 *</label><select id="i-site"></select></div>
@@ -597,6 +605,11 @@ function renderInput(){
   const today=new Date().toISOString().slice(0,10);
   ['o-date','i-date','a-date'].forEach(id=>{const el=document.getElementById(id);if(!el.value)el.value=today;});
   renderTxList('매출');renderTxList('매입');renderTxList('AS');
+  // 매입 탭이 기본으로 열려있게
+  if(!document.querySelector('.sub-tab.active[onclick*="매출"]') && !document.querySelector('[id^="sub-매출"][style*="block"]')){
+    document.querySelectorAll('[id^="sub-"]').forEach(d=>d.style.display='none');
+    document.getElementById('sub-매입').style.display='block';
+  }
 }
 function populateSels(){
   const opts='<option value="">-- 선택 --</option>'+sites.map(s=>`<option value="${s.id}">${s.name}</option>`).join('');
