@@ -319,6 +319,40 @@ textarea { resize: none; }
 .text-blue  { color: var(--accent); }
 .mono { font-family: 'Space Mono', monospace; }
 .search-box { width: 100%; margin-bottom: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 11px 14px; color: var(--text); font-size: 14px; font-family: 'Pretendard', sans-serif; outline: none; }
+
+/* DETAIL PAGE TRANSITION */
+.pages { transition: none; }
+.page { animation: none; }
+@keyframes slideInRight { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+@keyframes slideInLeft  { from { transform: translateX(-30%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+.page.slide-in-right { animation: slideInRight 0.25s cubic-bezier(0.4,0,0.2,1); }
+.page.slide-in-left  { animation: slideInLeft  0.22s cubic-bezier(0.4,0,0.2,1); }
+
+/* DETAIL TX SECTION */
+.detail-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 0 8px;
+  font-size: 13px;
+  font-weight: 700;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+.detail-tx-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 12px 0;
+  border-bottom: 1px solid rgba(42,48,72,0.4);
+  gap: 10px;
+}
+.detail-tx-row:last-child { border-bottom: none; }
+.detail-tx-left { flex: 1; min-width: 0; }
+.detail-tx-date { font-size: 11px; color: var(--text2); margin-bottom: 5px; }
+.detail-tx-badges { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 4px; }
+.detail-tx-memo  { font-size: 11px; color: var(--text3); margin-top: 2px; }
+.detail-tx-amount { font-size: 14px; font-weight: 700; font-family: 'Space Mono', monospace; white-space: nowrap; flex-shrink: 0; }
 </style>
 </head>
 <body>
@@ -418,11 +452,14 @@ textarea { resize: none; }
     </div>
   </div>
 
-  <!-- 현장 상세 -->
+  <!-- 현장 목록 -->
   <div id="page-sites" class="page">
     <input class="search-box" id="site-search" placeholder="🔍 현장 검색..." oninput="renderSites()">
     <div id="sites-list"></div>
   </div>
+
+  <!-- 현장 상세 (새 화면) -->
+  <div id="page-site-detail" class="page"></div>
 
   <!-- 달력 -->
   <div id="page-calendar" class="page">
@@ -541,21 +578,43 @@ if(!txs.length){
 const PTITLES={dashboard:'대시보드',input:'입력',sites:'현장',calendar:'달력'};
 let curTab='dashboard';
 
-function goTab(name,btn){
-  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+function goTab(name, btn, anim=''){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active','slide-in-right','slide-in-left'));
   document.querySelectorAll('.nav-item').forEach(b=>b.classList.remove('active'));
-  document.getElementById('page-'+name).classList.add('active');
-  if(btn) btn.classList.add('active');
-  document.getElementById('page-title').textContent=PTITLES[name];
+  const pg = document.getElementById('page-'+name);
+  pg.classList.add('active');
+  if(anim) { pg.classList.add(anim); setTimeout(()=>pg.classList.remove(anim), 300); }
+  // 현장 상세일 때는 하단 탭 유지 (현장 탭 활성)
+  if(name==='site-detail'){
+    document.querySelectorAll('.nav-item')[2].classList.add('active');
+  } else {
+    if(btn) btn.classList.add('active');
+  }
+  document.getElementById('page-title').textContent = name==='site-detail' ? '← 현장 상세' : PTITLES[name];
   curTab=name;
+
   const ta=document.getElementById('top-actions');
-  if(name==='input') ta.innerHTML=`<button class="icon-btn" onclick="openSheet('sheet-site')">＋</button>`;
-  else if(name==='calendar') ta.innerHTML=`<button class="icon-btn" onclick="openSheet('sheet-leave')">＋</button>`;
-  else ta.innerHTML='';
+  // 뒤로가기 버튼
+  if(name==='site-detail'){
+    ta.innerHTML=`<button class="icon-btn" onclick="goBack()" style="font-size:14px;">✕</button>`;
+  } else if(name==='input'){
+    ta.innerHTML=`<button class="icon-btn" onclick="openSheet('sheet-site')">＋</button>`;
+  } else if(name==='calendar'){
+    ta.innerHTML=`<button class="icon-btn" onclick="openSheet('sheet-leave')">＋</button>`;
+  } else {
+    ta.innerHTML='';
+  }
+
   if(name==='dashboard') renderDashboard();
   if(name==='input') renderInput();
   if(name==='sites') renderSites();
   if(name==='calendar') renderCalendar();
+}
+
+function goBack(){
+  goTab('sites', null, 'slide-in-left');
+  // 현장 탭 버튼 active 복원
+  document.querySelectorAll('.nav-item')[2].classList.add('active');
 }
 
 function switchSub(name,btn){
@@ -699,12 +758,12 @@ function changeStage(i){
   const s=sites.find(x=>x.id===stageSiteId);
   if(s){s.stage=i;save(KEYS.sites,sites);}
   closeSheet('sheet-stage');
-  renderSiteManage();renderSites();toast('단계 변경 완료 ✓');
+  renderSiteManage(); renderSites();
+  if(curTab==='site-detail'){ const s=sites.find(x=>x.id===stageSiteId); if(s) renderSiteDetail(s); }
+  toast('단계 변경 완료 ✓');
 }
 
-// SITES PAGE
-let expandedSite = null;
-
+// SITES PAGE (목록)
 function renderSites(){
   const q=(document.getElementById('site-search').value||'').toLowerCase();
   const el=document.getElementById('sites-list');
@@ -712,140 +771,183 @@ function renderSites(){
   if(!filtered.length){el.innerHTML='<div class="card empty">현장이 없습니다.</div>';return;}
   el.innerHTML=filtered.map(s=>{
     const sOut=sTx(s.id,'매출'),sIn=sTx(s.id,'매입'),sAS=sTx(s.id,'AS');
-    const sMatl=txs.filter(t=>t.type==='매입'&&t.siteId===s.id&&t.typeDetail==='자재비').reduce((a,t)=>a+t.amount,0);
-    const sPlyw=txs.filter(t=>t.type==='매입'&&t.siteId===s.id&&t.typeDetail==='합판비').reduce((a,t)=>a+t.amount,0)+(s.plywood||0);
     const profit=sOut-sIn-sAS;
     const margin=sOut>0?Math.round(profit/sOut*100):0;
     const mc=margin>=30?'var(--green)':margin>=20?'var(--yellow)':'var(--red)';
     const da=188,doff=da-(da*Math.max(0,Math.min(margin,100))/100);
     const taxWarn=txs.filter(t=>t.type==='매출'&&t.siteId===s.id&&t.tax!=='발행완료').length;
-    const isExpanded = expandedSite === s.id;
-
-    // 상세 내역 (펼쳤을 때)
-    const siteTxList = txs.filter(t=>t.siteId===s.id).sort((a,b)=>b.date.localeCompare(a.date));
-    const outTxs = siteTxList.filter(t=>t.type==='매출');
-    const inTxs  = siteTxList.filter(t=>t.type==='매입');
-    const asTxs  = siteTxList.filter(t=>t.type==='AS');
-
-    const renderTxRows = (list, type) => {
-      if(!list.length) return `<div style="font-size:12px;color:var(--text3);padding:8px 0;">내역 없음</div>`;
-      return list.map(t=>{
-        const color = type==='매출'?'var(--green)':type==='AS'?'var(--red)':'var(--accent)';
-        let taxV='-', tb='bg-gray';
-        if(type==='매출'){taxV=t.tax; tb=t.tax==='발행완료'?'bg-green':t.tax==='발행예정'?'bg-yellow':'bg-red';}
-        if(type==='매입'){taxV=t.tax; tb=t.tax==='수취완료'?'bg-green':t.tax==='수취예정'?'bg-yellow':'bg-gray';}
-        const pb=(t.paid==='입금완료'||t.paid==='지급완료')?'bg-green':(t.paid==='부분입금'||t.paid==='부분지급')?'bg-yellow':'bg-gray';
-        return `<div style="display:flex;align-items:flex-start;justify-content:space-between;padding:10px 0;border-bottom:1px solid rgba(42,48,72,0.4);">
-          <div style="flex:1;min-width:0;">
-            <div style="font-size:12px;color:var(--text2);margin-bottom:4px;">${t.date}${t.typeDetail?` · <span class="badge bg-blue" style="font-size:9px;">${t.typeDetail}</span>`:''}</div>
-            <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:3px;">
-              ${t.paid?`<span class="badge ${pb}" style="font-size:9px;">${t.paid}</span>`:''}
-              <span class="badge ${tb}" style="font-size:9px;">${taxV}</span>
-              ${t.taxDate?`<span style="font-size:10px;color:var(--text3);">발행일 ${t.taxDate}</span>`:''}
-            </div>
-            ${t.vendor?`<div style="font-size:11px;color:var(--text3);">거래처: ${t.vendor}</div>`:''}
-            ${t.memo?`<div style="font-size:11px;color:var(--text3);">${t.memo}</div>`:''}
-          </div>
-          <div style="font-size:13px;font-weight:700;font-family:'Space Mono',monospace;color:${color};white-space:nowrap;margin-left:10px;">${f(t.amount)}원</div>
-        </div>`;
-      }).join('');
-    };
-
-    const detailSection = isExpanded ? `
-      <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:16px;">
-
-        <div style="font-size:12px;font-weight:700;color:var(--green);margin-bottom:6px;display:flex;align-items:center;justify-content:space-between;">
-          💰 매출 내역
-          <span class="mono" style="font-size:12px;">${f(sOut)}원</span>
-        </div>
-        ${renderTxRows(outTxs,'매출')}
-
-        <div style="font-size:12px;font-weight:700;color:var(--accent);margin:14px 0 6px;display:flex;align-items:center;justify-content:space-between;">
-          📦 매입 내역
-          <span class="mono" style="font-size:12px;">${f(sIn)}원</span>
-        </div>
-        ${renderTxRows(inTxs,'매입')}
-
-        ${asTxs.length?`
-        <div style="font-size:12px;font-weight:700;color:var(--red);margin:14px 0 6px;display:flex;align-items:center;justify-content:space-between;">
-          🔧 AS 내역
-          <span class="mono" style="font-size:12px;">${f(sAS)}원</span>
-        </div>
-        ${renderTxRows(asTxs,'AS')}
-        `:''}
-
-        <div style="margin-top:14px;padding:12px;background:var(--surface2);border-radius:10px;">
-          <div style="font-size:11px;color:var(--text2);font-weight:600;margin-bottom:10px;">🔨 시공 품 수정</div>
-          <div style="display:flex;align-items:center;gap:10px;">
-            <input type="number" id="craft-${s.id}" value="${s.craft||0}" inputmode="numeric"
-              style="flex:1;padding:10px;font-size:15px;font-weight:700;text-align:center;border-radius:8px;background:var(--surface);border:1px solid var(--border);color:var(--text);"
-              placeholder="품 수">
-            <button class="btn btn-primary btn-sm" onclick="updateCraft('${s.id}')">저장</button>
+    return `<div class="site-card" onclick="openSiteDetail('${s.id}')" style="cursor:pointer;active:opacity0.8;">
+      <div class="site-card-top">
+        <div style="flex:1;min-width:0;">
+          <div class="site-name">${s.name}</div>
+          <div class="site-co">${s.company}</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">
+            <span class="badge bg-blue">${SE[s.stage]} ${STAGES[s.stage]}</span>
+            ${taxWarn>0?`<span class="badge bg-yellow">⚠ 미발행 ${taxWarn}건</span>`:''}
           </div>
         </div>
-      </div>` : '';
-
-    return `<div class="site-card">
-      <div onclick="toggleSite('${s.id}')" style="cursor:pointer;">
-        <div class="site-card-top">
-          <div style="flex:1;min-width:0;">
-            <div class="site-name">${s.name}</div>
-            <div class="site-co">${s.company}</div>
-            <div style="display:flex;gap:6px;flex-wrap:wrap;">
-              <span class="badge bg-blue">${SE[s.stage]} ${STAGES[s.stage]}</span>
-              ${taxWarn>0?`<span class="badge bg-yellow">⚠ 미발행 ${taxWarn}건</span>`:''}
-            </div>
-          </div>
-          <div class="m-circle">
-            <svg viewBox="0 0 64 64">
-              <circle cx="32" cy="32" r="30" fill="none" stroke="var(--surface3)" stroke-width="6"/>
-              <circle cx="32" cy="32" r="30" fill="none" stroke="${mc}" stroke-width="6" stroke-dasharray="${da}" stroke-dashoffset="${doff}" stroke-linecap="round"/>
-            </svg>
-            <div class="m-pct" style="color:${mc}">${margin}%</div>
-          </div>
-        </div>
-        <div class="metric-row">
-          <div class="metric-box"><div class="ml">매출</div><div class="mv text-green">${fS(sOut)}</div></div>
-          <div class="metric-box"><div class="ml">매입</div><div class="mv text-red">${fS(sIn)}</div></div>
-          <div class="metric-box"><div class="ml">순이익</div><div class="mv" style="color:${mc}">${fS(profit)}</div></div>
-        </div>
-        <div class="detail-grid">
-          <div class="detail-box"><div class="dl">🪵 자재비</div><div class="dv">${f(sMatl)}원</div></div>
-          <div class="detail-box"><div class="dl">🪵 합판비</div><div class="dv">${f(sPlyw)}원</div></div>
-          <div class="detail-box"><div class="dl">🔨 시공 품</div><div class="dv">${s.craft||0} 품</div></div>
-          <div class="detail-box"><div class="dl">🔧 AS 비용</div><div class="dv text-red">${f(sAS)}원</div></div>
-        </div>
-        <div style="text-align:center;margin-top:12px;font-size:12px;color:var(--text3);">
-          ${isExpanded ? '▲ 접기' : '▼ 상세내역 보기'}
+        <div class="m-circle">
+          <svg viewBox="0 0 64 64">
+            <circle cx="32" cy="32" r="30" fill="none" stroke="var(--surface3)" stroke-width="6"/>
+            <circle cx="32" cy="32" r="30" fill="none" stroke="${mc}" stroke-width="6" stroke-dasharray="${da}" stroke-dashoffset="${doff}" stroke-linecap="round"/>
+          </svg>
+          <div class="m-pct" style="color:${mc}">${margin}%</div>
         </div>
       </div>
-      ${detailSection}
-      <button class="btn btn-ghost btn-sm" style="margin-top:12px;width:100%;" onclick="event.stopPropagation();openStageSheet('${s.id}')">단계 변경</button>
+      <div class="metric-row">
+        <div class="metric-box"><div class="ml">매출</div><div class="mv text-green">${fS(sOut)}</div></div>
+        <div class="metric-box"><div class="ml">매입</div><div class="mv text-red">${fS(sIn)}</div></div>
+        <div class="metric-box"><div class="ml">순이익</div><div class="mv" style="color:${mc}">${fS(profit)}</div></div>
+      </div>
+      <div style="text-align:right;font-size:11px;color:var(--text3);margin-top:8px;">상세보기 ▶</div>
     </div>`;
   }).join('');
 }
 
-function toggleSite(id){
-  expandedSite = expandedSite===id ? null : id;
-  renderSites();
-  // 펼쳐진 카드로 스크롤
-  if(expandedSite){
-    setTimeout(()=>{
-      const cards = document.querySelectorAll('.site-card');
-      const filtered = sites.filter(s=>{
-        const q=(document.getElementById('site-search').value||'').toLowerCase();
-        return s.name.toLowerCase().includes(q)||s.company.toLowerCase().includes(q);
-      });
-      const idx = filtered.findIndex(s=>s.id===id);
-      if(idx>=0 && cards[idx]) cards[idx].scrollIntoView({behavior:'smooth',block:'start'});
-    },50);
-  }
+// 현장 상세 페이지
+function openSiteDetail(id){
+  const s = sites.find(x=>x.id===id);
+  if(!s) return;
+  renderSiteDetail(s);
+  goTab('site-detail', null, 'slide-in-right');
+}
+
+function renderSiteDetail(s){
+  const sOut=sTx(s.id,'매출'), sIn=sTx(s.id,'매입'), sAS=sTx(s.id,'AS');
+  const sMatl=txs.filter(t=>t.type==='매입'&&t.siteId===s.id&&t.typeDetail==='자재비').reduce((a,t)=>a+t.amount,0);
+  const sPlyw=txs.filter(t=>t.type==='매입'&&t.siteId===s.id&&t.typeDetail==='합판비').reduce((a,t)=>a+t.amount,0)+(s.plywood||0);
+  const sCons=txs.filter(t=>t.type==='매입'&&t.siteId===s.id&&t.typeDetail==='시공비').reduce((a,t)=>a+t.amount,0);
+  const profit=sOut-sIn-sAS;
+  const margin=sOut>0?Math.round(profit/sOut*100):0;
+  const mc=margin>=30?'var(--green)':margin>=20?'var(--yellow)':'var(--red)';
+  const da=188, doff=da-(da*Math.max(0,Math.min(margin,100))/100);
+  const taxWarn=txs.filter(t=>t.type==='매출'&&t.siteId===s.id&&t.tax!=='발행완료').length;
+
+  const outTxs=txs.filter(t=>t.type==='매출'&&t.siteId===s.id).sort((a,b)=>b.date.localeCompare(a.date));
+  const inTxs =txs.filter(t=>t.type==='매입'&&t.siteId===s.id).sort((a,b)=>b.date.localeCompare(a.date));
+  const asTxs =txs.filter(t=>t.type==='AS'  &&t.siteId===s.id).sort((a,b)=>b.date.localeCompare(a.date));
+
+  const txRows = (list, type) => {
+    if(!list.length) return `<div class="empty" style="padding:16px 0;">내역이 없습니다</div>`;
+    return list.map(t=>{
+      const color=type==='매출'?'var(--green)':type==='AS'?'var(--red)':'var(--accent)';
+      let taxV='-', tb='bg-gray';
+      if(type==='매출'){taxV=t.tax; tb=t.tax==='발행완료'?'bg-green':t.tax==='발행예정'?'bg-yellow':'bg-red';}
+      if(type==='매입'){taxV=t.tax; tb=t.tax==='수취완료'?'bg-green':t.tax==='수취예정'?'bg-yellow':'bg-gray';}
+      const pb=(t.paid==='입금완료'||t.paid==='지급완료')?'bg-green':(t.paid==='부분입금'||t.paid==='부분지급')?'bg-yellow':'bg-gray';
+      return `<div class="detail-tx-row">
+        <div class="detail-tx-left">
+          <div class="detail-tx-date">${t.date}${t.typeDetail?` · <span class="badge bg-blue" style="font-size:9px;">${t.typeDetail}</span>`:''}</div>
+          <div class="detail-tx-badges">
+            ${t.paid?`<span class="badge ${pb}" style="font-size:9px;">${t.paid}</span>`:''}
+            <span class="badge ${tb}" style="font-size:9px;">${taxV}</span>
+            ${t.taxDate?`<span style="font-size:10px;color:var(--text3);">발행일 ${t.taxDate}</span>`:''}
+          </div>
+          ${t.vendor?`<div class="detail-tx-memo">거래처: ${t.vendor}</div>`:''}
+          ${t.memo?`<div class="detail-tx-memo">${t.memo}</div>`:''}
+        </div>
+        <div class="detail-tx-amount" style="color:${color};">${f(t.amount)}원</div>
+      </div>`;
+    }).join('');
+  };
+
+  document.getElementById('page-site-detail').innerHTML = `
+    <!-- 헤더 요약 -->
+    <div class="card" style="margin-bottom:12px;">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:12px;">
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:17px;font-weight:800;margin-bottom:3px;">${s.name}</div>
+          <div style="font-size:13px;color:var(--accent);margin-bottom:8px;">${s.company}</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            <span class="badge bg-blue">${SE[s.stage]} ${STAGES[s.stage]}</span>
+            ${taxWarn>0?`<span class="badge bg-yellow">⚠ 세금계산서 미발행 ${taxWarn}건</span>`:''}
+          </div>
+        </div>
+        <div class="m-circle">
+          <svg viewBox="0 0 64 64">
+            <circle cx="32" cy="32" r="30" fill="none" stroke="var(--surface3)" stroke-width="6"/>
+            <circle cx="32" cy="32" r="30" fill="none" stroke="${mc}" stroke-width="6" stroke-dasharray="${da}" stroke-dashoffset="${doff}" stroke-linecap="round"/>
+          </svg>
+          <div class="m-pct" style="color:${mc}">${margin}%</div>
+        </div>
+      </div>
+      <div class="metric-row" style="margin-bottom:10px;">
+        <div class="metric-box"><div class="ml">총 매출</div><div class="mv text-green">${fS(sOut)}</div></div>
+        <div class="metric-box"><div class="ml">총 매입</div><div class="mv text-red">${fS(sIn)}</div></div>
+        <div class="metric-box"><div class="ml">순이익</div><div class="mv" style="color:${mc}">${fS(profit)}</div></div>
+      </div>
+      <div class="detail-grid">
+        <div class="detail-box"><div class="dl">🪵 자재비</div><div class="dv">${f(sMatl)}원</div></div>
+        <div class="detail-box"><div class="dl">🪵 합판비</div><div class="dv">${f(sPlyw)}원</div></div>
+        <div class="detail-box"><div class="dl">🏗️ 시공비</div><div class="dv">${f(sCons)}원</div></div>
+        <div class="detail-box"><div class="dl">🔧 AS 비용</div><div class="dv text-red">${f(sAS)}원</div></div>
+      </div>
+    </div>
+
+    <!-- 시공 품 수정 -->
+    <div class="card" style="margin-bottom:12px;">
+      <div class="card-title">🔨 시공 품 수</div>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <input type="number" id="craft-inp" value="${s.craft||0}" inputmode="numeric"
+          style="flex:1;padding:12px;font-size:20px;font-weight:800;text-align:center;border-radius:10px;background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:'Space Mono',monospace;">
+        <span style="font-size:14px;color:var(--text2);white-space:nowrap;">품</span>
+        <button class="btn btn-primary btn-sm" onclick="updateCraft('${s.id}')">저장</button>
+      </div>
+      <div style="font-size:11px;color:var(--text3);margin-top:8px;">시공 진행 중 변경된 품 수를 바로 수정하세요.</div>
+    </div>
+
+    <!-- 단계 변경 -->
+    <div class="card" style="margin-bottom:12px;">
+      <div class="card-title">📋 공정 단계</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;">
+        ${STAGES.map((l,i)=>`
+          <button class="btn ${s.stage==i?'btn-primary':'btn-ghost'} btn-sm" style="flex:1;min-width:calc(33% - 8px);"
+            onclick="changeStageDetail('${s.id}',${i})">${SE[i]} ${l}</button>
+        `).join('')}
+      </div>
+    </div>
+
+    <!-- 매출 내역 -->
+    <div class="card" style="margin-bottom:12px;">
+      <div class="detail-section-title">
+        <span style="color:var(--green);">💰 매출 내역</span>
+        <span class="mono" style="font-size:13px;color:var(--green);">${f(sOut)}원</span>
+      </div>
+      ${txRows(outTxs,'매출')}
+    </div>
+
+    <!-- 매입 내역 -->
+    <div class="card" style="margin-bottom:12px;">
+      <div class="detail-section-title">
+        <span style="color:var(--accent);">📦 매입 내역</span>
+        <span class="mono" style="font-size:13px;color:var(--accent);">${f(sIn)}원</span>
+      </div>
+      ${txRows(inTxs,'매입')}
+    </div>
+
+    <!-- AS 내역 -->
+    <div class="card" style="margin-bottom:12px;">
+      <div class="detail-section-title">
+        <span style="color:var(--red);">🔧 AS 내역</span>
+        <span class="mono" style="font-size:13px;color:var(--red);">${f(sAS)}원</span>
+      </div>
+      ${txRows(asTxs,'AS')}
+    </div>
+  `;
+
+  // 현재 현장 ID 저장
+  document.getElementById('page-site-detail').dataset.siteId = s.id;
 }
 
 function updateCraft(id){
-  const val = parseInt(document.getElementById('craft-'+id).value)||0;
-  const s = sites.find(x=>x.id===id);
-  if(s){ s.craft=val; save(KEYS.sites,sites); renderSites(); toast(`시공 품 ${val}품으로 저장 ✓`); }
+  const val=parseInt(document.getElementById('craft-inp').value)||0;
+  const s=sites.find(x=>x.id===id);
+  if(s){ s.craft=val; save(KEYS.sites,sites); toast(`시공 품 ${val}품으로 저장 ✓`); }
+}
+
+function changeStageDetail(id, i){
+  const s=sites.find(x=>x.id===id);
+  if(s){ s.stage=i; save(KEYS.sites,sites); renderSiteDetail(s); toast('단계 변경 완료 ✓'); }
 }
 
 // CALENDAR
