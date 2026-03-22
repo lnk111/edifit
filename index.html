@@ -360,7 +360,7 @@ textarea { resize: none; }
 <!-- TOP HEADER -->
 <div class="top-header">
   <span class="top-logo">EDIFIT</span>
-  <span class="top-title" id="page-title">대시보드</span>
+  <span class="top-title" id="page-title">에디핏</span>
   <div class="top-right" id="top-actions"></div>
 </div>
 
@@ -373,10 +373,6 @@ textarea { resize: none; }
     <div class="card" style="margin-bottom:12px;">
       <div class="card-title">📋 공정 현황</div>
       <div class="pipe-scroll" id="pipeline"></div>
-    </div>
-    <div class="card">
-      <div class="card-title">🕐 최근 거래</div>
-      <div id="recent-list"></div>
     </div>
   </div>
 
@@ -481,7 +477,7 @@ textarea { resize: none; }
 
 <!-- BOTTOM NAV -->
 <nav class="bottom-nav">
-  <button class="nav-item active" onclick="goTab('dashboard',this)"><span class="nav-icon">📊</span><span class="nav-label">대시보드</span></button>
+  <button class="nav-item active" onclick="goTab('dashboard',this)"><span class="nav-icon">📊</span><span class="nav-label">에디핏</span></button>
   <button class="nav-item" onclick="goTab('input',this)"><span class="nav-icon">✏️</span><span class="nav-label">입력</span></button>
   <button class="nav-item" onclick="goTab('sites',this)"><span class="nav-icon">🏢</span><span class="nav-label">현장</span></button>
   <button class="nav-item" onclick="goTab('calendar',this)"><span class="nav-icon">📅</span><span class="nav-label">달력</span></button>
@@ -575,7 +571,7 @@ if(!txs.length){
 }
 
 // NAV
-const PTITLES={dashboard:'대시보드',input:'입력',sites:'현장',calendar:'달력'};
+const PTITLES={dashboard:'에디핏',input:'입력',sites:'현장',calendar:'달력'};
 let curTab='dashboard';
 
 function goTab(name, btn, anim=''){
@@ -643,18 +639,6 @@ function renderDashboard(){
     const ss=sites.filter(s=>s.stage==i);
     const chips=ss.map(s=>`<div class="site-pill"><div class="sp-name">${s.name}</div><div class="sp-co">${s.company}</div></div>`).join('');
     return `<div class="stage-pill sp${i}"><div class="stage-ph"><span class="sdot"></span>${SE[i]} ${STAGES[i]}<span class="scnt">${ss.length}</span></div><div class="stage-body">${chips||'<div style="font-size:10px;color:var(--text3);padding:4px">없음</div>'}</div></div>`;
-  }).join('');
-  const recent=[...txs].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,8);
-  const rl=document.getElementById('recent-list');
-  if(!recent.length){rl.innerHTML='<div class="empty">내역 없음</div>';return;}
-  rl.innerHTML=recent.map(t=>{
-    const site=sites.find(s=>s.id===t.siteId);
-    const cls=t.type==='매출'?'out':t.type==='매입'?'in':'as';
-    const icon=t.type==='매출'?'💰':t.type==='매입'?'📦':'🔧';
-    const color=t.type==='매출'?'var(--green)':t.type==='매입'?'var(--accent)':'var(--red)';
-    const taxV=t.tax||(t.type==='AS'?'N/A':'-');
-    const tb=taxV==='발행완료'||taxV==='수취완료'?'bg-green':taxV==='발행예정'||taxV==='수취예정'?'bg-yellow':'bg-gray';
-    return `<div class="tx-item"><div class="tx-icon ${cls}">${icon}</div><div class="tx-info"><div class="tx-name">${site?site.name:'-'}</div><div class="tx-sub">${t.date} · <span class="badge ${tb}">${taxV}</span></div></div><div class="tx-amount" style="color:${color}">${f(t.amount)}원</div></div>`;
   }).join('');
 }
 
