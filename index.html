@@ -441,74 +441,98 @@ textarea{resize:none;}
 <div class="toast" id="toast"></div>
 
 <script>
-// ════════════════════════════════════════════
-//  DATA SCHEMA (Supabase 연동 고려 구조)
-//
-//  sites: { id, name, company, personId, stage,
-//            deadline, date, craft, plywood, memo }
-//  txs:   { id, type, siteId, date, amount, paid,
-//            tax, taxDate, vendor, memo, typeDetail }
-//  leaves:{ id, name, team, type, start, end, memo }
-//  persons:{ id, name, team }   ← NEW
-// ════════════════════════════════════════════
+// ══════════════════════════════════════════
+//  SUPABASE 연동
+// ══════════════════════════════════════════
+const SUPABASE_URL = 'https://kavgmkebgowowheggwdl.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_KnDJiSHvXzTq_rOIISL58w_srF0Z3VW';
 
-const KEYS={sites:'ef3_sites',txs:'ef3_txs',leaves:'ef3_leaves',persons:'ef3_persons'};
-function load(k){try{return JSON.parse(localStorage.getItem(k))||[];}catch{return[];}}
-function save(k,v){localStorage.setItem(k,JSON.stringify(v));}
-function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6);}
+const sb = {
+  async get(table, extra='') {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?select=*&order=created_at.asc${extra}`, {
+      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` }
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+  },
+  async insert(table, data) {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
+      method: 'POST',
+      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', Prefer: 'return=representation' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+  },
+  async update(table, id, data) {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?id=eq.${id}`, {
+      method: 'PATCH',
+      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', Prefer: 'return=representation' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+  },
+  async del(table, id) {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?id=eq.${id}`, {
+      method: 'DELETE',
+      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` }
+    });
+    if (!res.ok) throw new Error(await res.text());
+  }
+};
+
+// DB 컬럼 ↔ 앱 변환
+function siteFromDB(r){ return { id:r.id, name:r.name, company:r.company, personId:r.person_id||null, stage:r.stage||0, deadline:r.deadline||'', date:r.date||'', craft:r.craft||0, plywood:r.plywood||0, memo:r.memo||'' }; }
+function siteToDB(s){ return { id:s.id, name:s.name, company:s.company, person_id:s.personId||null, stage:s.stage||0, deadline:s.deadline||null, date:s.date||null, craft:s.craft||0, plywood:s.plywood||0, memo:s.memo||'' }; }
+function txFromDB(r){ return { id:r.id, type:r.type, siteId:r.site_id, date:r.date||'', amount:r.amount||0, paid:r.paid||'', tax:r.tax||'', taxDate:r.tax_date||'', vendor:r.vendor||'', memo:r.memo||'', typeDetail:r.type_detail||'' }; }
+function txToDB(t){ return { id:t.id, type:t.type, site_id:t.siteId, date:t.date||null, amount:t.amount||0, paid:t.paid||'', tax:t.tax||'', tax_date:t.taxDate||null, vendor:t.vendor||'', memo:t.memo||'', type_detail:t.typeDetail||'' }; }
+function leafFromDB(r){ return { id:r.id, name:r.name, team:r.team, type:r.type, start:r.start_date||'', end:r.end_date||'', memo:r.memo||'' }; }
+function leafToDB(l){ return { id:l.id, name:l.name, team:l.team, type:l.type, start_date:l.start||null, end_date:l.end||null, memo:l.memo||'' }; }
+
+function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
 
 // ── 공정 10단계 ──
-const STAGES=[
-  '도면 요청','실측 대기','실측 완료','도면 작업중',
-  '도면 확정','제작중','제작 완료','출고 대기','시공 완료','AS 진행'
-];
+const STAGES=['도면 요청','실측 대기','실측 완료','도면 작업중','도면 확정','제작중','제작 완료','출고 대기','시공 완료','AS 진행'];
 const SE=['📋','📐','✅','✏️','📌','🔨','📦','🚚','🏠','🔧'];
-const STAGE_COLORS=[
-  '#9A9A8C','#2980B9','#1A6B4A','#6B4A8E',
-  '#8E6BAD','#C06A1A','#D4813A','#B7770D','#1A6B4A','#C0392B'
-];
+const STAGE_COLORS=['#9A9A8C','#2980B9','#1A6B4A','#6B4A8E','#8E6BAD','#C06A1A','#D4813A','#B7770D','#1A6B4A','#C0392B'];
 
-let sites=load(KEYS.sites);
-let txs=load(KEYS.txs);
-let leaves=load(KEYS.leaves);
-let persons=load(KEYS.persons);
+let sites=[], txs=[], leaves=[], persons=[];
 
-// ── 기본 담당자 시드 ──
-if(!persons.length){
-  persons=[
-    {id:uid(),name:'김실장',team:'관리'},
-    {id:uid(),name:'이남경',team:'디자인팀'},
-    {id:uid(),name:'박시공',team:'시공팀'},
-    {id:uid(),name:'최생산',team:'생산직'},
-  ];
-  save(KEYS.persons,persons);
+// ── 로딩 오버레이 ──
+function showLoading(msg='불러오는 중...'){
+  let el=document.getElementById('ld');
+  if(!el){
+    el=document.createElement('div'); el.id='ld';
+    el.style.cssText='position:fixed;inset:0;background:rgba(242,239,232,.92);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9999;gap:14px;';
+    el.innerHTML='<div style="width:44px;height:44px;border:4px solid #C8C3B4;border-top-color:#1A6B4A;border-radius:50%;animation:ldspin .8s linear infinite;"></div><div id="ld-msg" style="font-size:15px;font-weight:700;color:#1A6B4A;"></div>';
+    const st=document.createElement('style'); st.textContent='@keyframes ldspin{to{transform:rotate(360deg)}}'; document.head.appendChild(st);
+    document.body.appendChild(el);
+  }
+  document.getElementById('ld-msg').textContent=msg;
+  el.style.display='flex';
 }
+function hideLoading(){ const el=document.getElementById('ld'); if(el)el.style.display='none'; }
 
-// ── 현장 시드 ──
-if(!sites.length){
-  const [p0,p1,p2,p3]=persons.map(p=>p.id);
-  sites=[
-    {id:uid(),name:'강남구 역삼동 OO사무소',company:'현대인테리어',personId:p0,stage:5,deadline:'2025-06-10',date:'2025-05-01',craft:4,plywood:350000,memo:''},
-    {id:uid(),name:'서초구 잠원동 APT',company:'리브인테리어',personId:p1,stage:3,deadline:'2025-05-25',date:'2025-05-10',craft:2,plywood:180000,memo:''},
-    {id:uid(),name:'마포구 합정동 카페',company:'스페이스랩',personId:p2,stage:9,deadline:'2025-05-20',date:'2025-04-20',craft:6,plywood:520000,memo:'AS 처리중'},
-    {id:uid(),name:'송파구 잠실동 상가',company:'디자인그룹',personId:p3,stage:1,deadline:'2025-07-01',date:'2025-05-15',craft:0,plywood:0,memo:'실측 예정'},
-  ];
-  save(KEYS.sites,sites);
-}
-
-// ── TX 시드 ──
-if(!txs.length){
-  const [s0,s1,s2]=sites.map(s=>s.id);
-  txs=[
-    {id:uid(),type:'매출',siteId:s0,date:'2025-05-05',amount:8500000,paid:'입금완료',tax:'발행완료',taxDate:'2025-05-05',vendor:'',memo:'계약금',typeDetail:''},
-    {id:uid(),type:'매출',siteId:s0,date:'2025-05-15',amount:4000000,paid:'미입금',tax:'미발행',taxDate:'',vendor:'',memo:'중도금 예정',typeDetail:''},
-    {id:uid(),type:'매입',siteId:s0,date:'2025-05-06',amount:2800000,paid:'지급완료',tax:'수취완료',taxDate:'2025-05-06',vendor:'목재사',memo:'자재',typeDetail:'자재비'},
-    {id:uid(),type:'매입',siteId:s0,date:'2025-05-07',amount:380000,paid:'지급완료',tax:'수취완료',taxDate:'2025-05-07',vendor:'합판거래처',memo:'합판',typeDetail:'합판비'},
-    {id:uid(),type:'매출',siteId:s1,date:'2025-05-12',amount:3200000,paid:'입금완료',tax:'발행완료',taxDate:'2025-05-12',vendor:'',memo:'선금',typeDetail:''},
-    {id:uid(),type:'매입',siteId:s1,date:'2025-05-13',amount:1100000,paid:'미지급',tax:'미수취',taxDate:'',vendor:'부자재상',memo:'자재',typeDetail:'자재비'},
-    {id:uid(),type:'AS',siteId:s2,date:'2025-05-18',amount:120000,paid:'',tax:'',taxDate:'',vendor:'',memo:'도어 힌지 교체',typeDetail:'자체처리'},
-  ];
-  save(KEYS.txs,txs);
+// ── 전체 데이터 로드 ──
+async function loadAll(){
+  showLoading('에디핏 데이터 불러오는 중...');
+  try {
+    const [p,s,t,l] = await Promise.all([
+      sb.get('persons'), sb.get('sites'), sb.get('txs'), sb.get('leaves')
+    ]);
+    persons = p.map(r=>({id:r.id,name:r.name,team:r.team}));
+    sites   = s.map(siteFromDB);
+    txs     = t.map(txFromDB);
+    leaves  = l.map(leafFromDB);
+    hideLoading();
+    populateSiteSheet();
+    renderDashboard();
+  } catch(e) {
+    hideLoading();
+    toast('서버 연결 실패: '+e.message, true);
+    console.error(e);
+  }
 }
 
 // ════════ UTILS ════════
@@ -904,25 +928,25 @@ function renderSiteDetail(s){
 }
 
 // 다음 단계로 전진
-function advanceStage(id){
+async function advanceStage(id){
   const s=sites.find(x=>x.id===id);
   if(!s)return;
   if(s.stage>=STAGES.length-1)return toast('이미 마지막 단계입니다.',true);
   s.stage++;
-  save(KEYS.sites,sites);
+  /* DB auto-save */
   renderSiteDetail(s);
   toast(`${SE[s.stage]} ${STAGES[s.stage]}(으)로 변경 ✓`);
 }
 
-function updateCraft(id){
+async function updateCraft(id){
   const val=parseInt(document.getElementById('craft-inp').value)||0;
   const s=sites.find(x=>x.id===id);
-  if(s){s.craft=val;save(KEYS.sites,sites);toast(`시공 품 ${val}품 저장 ✓`);}
+  if(s){ try{ await sb.update('sites',s.id,{craft:val}); s.craft=val; toast(`시공 품 ${val}품 저장 ✓`); }catch(e){ toast('저장 실패',true); } }
 }
 
-function changeStageDetail(id,i){
+async function changeStageDetail(id,i){
   const s=sites.find(x=>x.id===id);
-  if(s){s.stage=i;save(KEYS.sites,sites);renderSiteDetail(s);toast('단계 변경 ✓');}
+  if(s){ try{ await sb.update('sites',s.id,{stage:i}); s.stage=i; renderSiteDetail(s); toast('단계 변경 ✓'); }catch(e){ toast('저장 실패',true); } }
 }
 
 // ════════ SITE MANAGE (입력 탭) ════════
@@ -949,10 +973,10 @@ function renderSiteManage(){
   }).join('');
 }
 
-function delSite(id){
+async function delSite(id){
   if(!confirm('삭제하시겠습니까?'))return;
-  sites=sites.filter(s=>s.id!==id);save(KEYS.sites,sites);
-  renderSiteManage();populateSels();toast('삭제되었습니다.');
+  try{ await sb.del('sites',id); sites=sites.filter(s=>s.id!==id); renderSiteManage(); populateSels(); toast('삭제되었습니다.'); }
+  catch(e){ toast('삭제 실패: '+e.message,true); }
 }
 
 // ════════ SITE SHEET (추가/수정) ════════
@@ -997,7 +1021,7 @@ function editSite(id){
   openSheet('sheet-site');
 }
 
-function saveSite(){
+async function saveSite(){
   const name=document.getElementById('ns-name').value.trim();
   const co=document.getElementById('ns-co').value.trim();
   if(!name||!co)return toast('현장명과 업체명을 입력하세요.',true);
@@ -1012,24 +1036,31 @@ function saveSite(){
     plywood:parseN(document.getElementById('ns-plywood').value),
     memo:document.getElementById('ns-memo').value
   };
-  if(existingId){
-    const idx=sites.findIndex(x=>x.id===existingId);
-    if(idx>=0)sites[idx]={...sites[idx],...data};
-    toast('수정 완료 ✓');
-  } else {
-    sites.push({id:uid(),...data});
-    toast('현장 추가 완료 ✓');
-  }
-  save(KEYS.sites,sites);
-  closeSheet('sheet-site');
-  populateSels();
-  renderSiteManage();
-  // 상세 페이지가 열려있으면 갱신
-  if(curTab==='site-detail'){
-    const sid=document.getElementById('page-site-detail').dataset.siteId;
-    const s=sites.find(x=>x.id===sid);
-    if(s)renderSiteDetail(s);
-  }
+  showLoading('저장 중...');
+  try {
+    if(existingId){
+      const dbData=siteToDB({...data,id:existingId});
+      await sb.update('sites',existingId,dbData);
+      const idx=sites.findIndex(x=>x.id===existingId);
+      if(idx>=0)sites[idx]={...sites[idx],...data};
+      toast('수정 완료 ✓');
+    } else {
+      const newId=uid();
+      const dbData=siteToDB({...data,id:newId});
+      await sb.insert('sites',dbData);
+      sites.push({id:newId,...data});
+      toast('현장 추가 완료 ✓');
+    }
+    hideLoading();
+    closeSheet('sheet-site');
+    populateSels();
+    renderSiteManage();
+    if(curTab==='site-detail'){
+      const sid=document.getElementById('page-site-detail').dataset.siteId;
+      const s=sites.find(x=>x.id===sid);
+      if(s)renderSiteDetail(s);
+    }
+  } catch(e){ hideLoading(); toast('저장 실패: '+e.message,true); }
 }
 
 // ════════ INPUT ════════
@@ -1071,7 +1102,7 @@ function renderTxList(type){
   }).join('');
 }
 
-function saveTx(type){
+async function saveTx(type){
   let tx={id:uid(),type};
   if(type==='매출'){
     const siteId=document.getElementById('o-site').value,amount=parseN(document.getElementById('o-amt').value);
@@ -1089,12 +1120,14 @@ function saveTx(type){
     tx={...tx,siteId,date:document.getElementById('a-date').value,amount,paid:'',tax:'',taxDate:'',vendor:'',memo:document.getElementById('a-memo').value,typeDetail:document.getElementById('a-type').value};
     document.getElementById('a-amt').value='';document.getElementById('a-memo').value='';
   }
-  txs.push(tx);save(KEYS.txs,txs);renderTxList(type);toast('저장되었습니다 ✓');
+  try{ await sb.insert('txs',txToDB(tx)); txs.push(tx); renderTxList(type); toast('저장되었습니다 ✓'); }
+  catch(e){ toast('저장 실패: '+e.message,true); }
 }
 
-function delTx(id,type){
+async function delTx(id,type){
   if(!confirm('삭제하시겠습니까?'))return;
-  txs=txs.filter(t=>t.id!==id);save(KEYS.txs,txs);renderTxList(type);toast('삭제되었습니다.');
+  try{ await sb.del('txs',id); txs=txs.filter(t=>t.id!==id); renderTxList(type); toast('삭제되었습니다.'); }
+  catch(e){ toast('삭제 실패: '+e.message,true); }
 }
 
 // ════════ PERSONS ════════
@@ -1111,28 +1144,23 @@ function renderPersonUI(){
     </div>`).join('');
 }
 
-function addPerson(){
+async function addPerson(){
   const name=document.getElementById('new-person-name').value.trim();
   const team=document.getElementById('new-person-team').value;
   if(!name)return toast('이름을 입력하세요.',true);
   if(persons.find(p=>p.name===name))return toast('이미 있는 담당자입니다.',true);
-  persons.push({id:uid(),name,team});
-  save(KEYS.persons,persons);
-  document.getElementById('new-person-name').value='';
-  renderPersonUI();
-  toast(`${name} 추가 완료 ✓`);
+  const newId=uid();
+  try{ await sb.insert('persons',{id:newId,name,team}); persons.push({id:newId,name,team}); document.getElementById('new-person-name').value=''; renderPersonUI(); toast(`${name} 추가 완료 ✓`); }
+  catch(e){ toast('추가 실패: '+e.message,true); }
 }
 
-function delPerson(id){
+async function delPerson(id){
   if(sites.find(s=>s.personId===id)){
     if(!confirm('이 담당자가 배정된 현장이 있습니다. 삭제하면 담당자가 비워집니다. 계속하시겠습니까?'))return;
-    sites.forEach(s=>{if(s.personId===id)s.personId=null;});
-    save(KEYS.sites,sites);
+    for(const s of sites){ if(s.personId===id){ try{ await sb.update('sites',s.id,{person_id:null}); s.personId=null; }catch(e){} } }
   }
-  persons=persons.filter(p=>p.id!==id);
-  save(KEYS.persons,persons);
-  renderPersonUI();
-  toast('삭제되었습니다.');
+  try{ await sb.del('persons',id); persons=persons.filter(p=>p.id!==id); renderPersonUI(); toast('삭제되었습니다.'); }
+  catch(e){ toast('삭제 실패: '+e.message,true); }
 }
 
 // persons 시트 열 때
@@ -1171,20 +1199,18 @@ function renderCalendar(){
 }
 function calNav(dir){calM+=dir;if(calM>11){calM=0;calY++;}if(calM<0){calM=11;calY--;}renderCalendar();}
 
-function saveLeave(){
+async function saveLeave(){
   const name=document.getElementById('lv-name').value.trim();
   const s=document.getElementById('lv-s').value,e=document.getElementById('lv-e').value;
   if(!name||!s||!e)return toast('이름, 시작일, 종료일을 입력하세요.',true);
   if(s>e)return toast('시작일이 종료일보다 늦습니다.',true);
-  leaves.push({id:uid(),name,team:document.getElementById('lv-team').value,type:document.getElementById('lv-type').value,start:s,end:e,memo:document.getElementById('lv-memo').value});
-  save(KEYS.leaves,leaves);closeSheet('sheet-leave');
-  document.getElementById('lv-name').value='';document.getElementById('lv-memo').value='';
-  renderCalendar();toast('등록 완료 ✓');
+  const newLeaf={id:uid(),name,team:document.getElementById('lv-team').value,type:document.getElementById('lv-type').value,start:s,end:e,memo:document.getElementById('lv-memo').value};
+  try{ await sb.insert('leaves',leafToDB(newLeaf)); leaves.push(newLeaf); closeSheet('sheet-leave'); document.getElementById('lv-name').value=''; document.getElementById('lv-memo').value=''; renderCalendar(); toast('등록 완료 ✓'); }
+  catch(e){ toast('저장 실패: '+e.message,true); }
 }
 
 // ════════ INIT ════════
-populateSiteSheet(); // 시트 옵션 초기화
-renderDashboard();
+loadAll();
 </script>
 </body>
 </html>
